@@ -5,36 +5,32 @@ Two independent trackers, selected by the CATALOG env var, each with its own
 committed state file:
 
   catalog : the FULL container catalog (~2,656 images) scraped from the public
-            Containers Directory at images.chainguard.dev/directory. This is the
-            superset you actually want to watch -- free tier + production + FIPS
-            + charts. Names only (the directory exposes no per-row timestamp),
-            so this is a name-diff tracker.
+            Containers Directory at images.chainguard.dev/directory. Names only
+            (the directory exposes no per-row timestamp), so it's a name-diff
+            tracker. Pages are fetched concurrently.
 
-  skills  : Agent Skills, taken from `chainctl images repos list --public` by
-            keeping the repos that carry NO catalogTier/bundles (images carry
-            them; skills don't). These do carry createTime.
+  skills  : Agent Skills, from `chainctl images repos list --public`, keeping
+            repos with NO catalogTier/bundles (images carry them; skills don't).
+            These carry createTime.
 
 The companion workflow runs both via a 2-way matrix.
 
 Modes:
-  since_last_run : repos never observed in any prior run (works for both)
-  since_date     : createTime after a persisted baseline (skills only -- the
-                   directory scrape has no timestamps)
+  since_last_run : repos never observed in any prior run (both)
+  since_date     : createTime after a persisted baseline (skills only)
 
 BOOTSTRAP=true seeds the state file without opening an issue. Run once.
-
 Emitted GitHub outputs: count, names, changed, notify, persist, title.
-State file (.state/<catalog>.json):
-  { "since_date": "...", "last_run": "...", "seen": { name: createTime } }
 """
 import os
 import re
 import sys
 import json
-import time
+import math
 import datetime
 import subprocess
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 CATALOG = os.environ.get("CATALOG", "catalog").strip().lower()   # catalog | skills
 STATE_PATH = os.environ.get("STATE", f".state/{CATALOG}.json")
@@ -42,9 +38,7 @@ MODE = os.environ.get("MODE", "since_last_run")
 DATE_INPUT = os.environ.get("SINCE_DATE", "").strip()
 BODY_PATH = os.environ.get("ISSUE_BODY", f"{CATALOG}_body.md")
 BOOTSTRAP = os.environ.get("BOOTSTRAP", "").strip().lower() in ("1", "true", "yes")
-# Optional: scope the directory scrape to a category (application, base, ai,
-# fips, free, ...). Blank = the full directory.
-DIR_CATEGORY = os.environ.get("DIR_CATEGORY", "").strip()
+DIR_CATEGORY = os.environ.get("DIR_CATEGORY", "").strip()        # blank = full directory
 
 REGISTRY = "cgr.dev/chainguard"
 DIR_BASE = "https://images.chainguard.dev/directory"
@@ -53,7 +47,8 @@ SLUG_RE = re.compile(r"/directory/image/([a-z0-9][a-z0-9._-]*)/(?:versions|overv
 UA = "chainguard-catalog-watch/1.0 (+github-actions)"
 NOUN = {"catalog": "catalog image", "skills": "skill"}.get(CATALOG, CATALOG)
 
-MAX_DIR_PAGES = 500
+MAX_DIR_PAGES = 600
+FETCH_WORKERS = 12
 MAX_ISSUE_ROWS = 100
 MAX_ISSUE_CHARS = 60000
 
@@ -69,36 +64,54 @@ def is_image(rec: dict) -> bool:
     return bool(tier) or bool(rec.get("bundles") or [])
 
 
-def list_directory() -> dict:
-    """Scrape the public Containers Directory. Returns {name: ""} (no timestamps).
+def _fetch(url: str) -> str:
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.read().decode("utf-8", "replace")
+    except Exception:
+        return ""
 
-    Pages /directory/<N> until a page contributes no new slugs (which also
-    covers the site clamping out-of-range pages to the last one).
+
+def list_directory() -> dict:
+    """Scrape the public Containers Directory, fetching pages concurrently.
+
+    Page 1 tells us the total count and a representative page size, so we know
+    how many pages exist up front instead of walking until empty. Pages 2..N
+    are fetched in parallel; a short sequential tail-sweep covers any estimate
+    shortfall. Returns {name: ""} (the directory carries no timestamps).
     """
-    names, page, misses = set(), 1, 0
-    while page <= MAX_DIR_PAGES:
-        url = f"{DIR_PAGE_URL}/{page}"
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": UA})
-            with urllib.request.urlopen(req, timeout=30) as r:
-                html = r.read().decode("utf-8", "replace")
-        except Exception:
-            break
+    html1 = _fetch(f"{DIR_PAGE_URL}/1")
+    names = set(SLUG_RE.findall(html1))
+    if not names:
+        return {}
+
+    m = re.search(r"([\d,]{2,})\s+images", html1)
+    total = int(m.group(1).replace(",", "")) if m else 0
+    page_size = max(len(names), 1)
+    link_re = re.compile(re.escape(DIR_PAGE_URL) + r"/(\d+)\b")
+    visible = [int(x) for x in link_re.findall(html1)] or [1]
+    est = math.ceil(total / page_size) if total else 0
+    last = min(MAX_DIR_PAGES, max(est, max(visible)) + 5)   # generous upper bound
+
+    urls = [f"{DIR_PAGE_URL}/{p}" for p in range(2, last + 1)]
+    with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as ex:
+        for html in ex.map(_fetch, urls):
+            names |= set(SLUG_RE.findall(html))
+
+    # Tail safety: if we're still short of the advertised total, sweep forward
+    # until two consecutive pages add nothing. Rarely runs.
+    page, misses = last + 1, 0
+    while total and len(names) < total and page <= MAX_DIR_PAGES and misses < 2:
         before = len(names)
-        names |= set(SLUG_RE.findall(html))
-        if len(names) == before:
-            misses += 1
-            if misses >= 2:
-                break
-        else:
-            misses = 0
+        names |= set(SLUG_RE.findall(_fetch(f"{DIR_PAGE_URL}/{page}")))
+        misses = misses + 1 if len(names) == before else 0
         page += 1
-        time.sleep(0.3)                       # be polite to the site
+
     return {n: "" for n in sorted(names)}
 
 
 def list_skills():
-    """`chainctl images repos list --public`, keep the non-image (skill) repos."""
     out = subprocess.check_output(
         ["chainctl", "images", "repos", "list", "--public", "-o", "json"]
     )
@@ -107,7 +120,7 @@ def list_skills():
     repos, meta = {}, {}
     for r in items:
         name = r.get("name") or r.get("repo")
-        if not name or is_image(r):            # keep only skills here
+        if not name or is_image(r):
             continue
         repos[name] = r.get("createTime", "")
         meta[name] = {"tier": r.get("catalogTier", ""), "bundles": r.get("bundles", [])}
@@ -202,9 +215,8 @@ def main():
 
     current, meta = list_repos()
 
-    # Guard: a scrape that returns near-nothing is almost certainly a fetch
-    # failure or markup change, not a catalog that shrank to zero. Don't let it
-    # nuke the diff (everything would look "removed" / nothing "new").
+    # A near-empty scrape is a fetch failure, not a shrunken catalog. Skip
+    # rather than flag the whole catalog as removed / later re-fire it as new.
     if CATALOG == "catalog" and not BOOTSTRAP and len(current) < 100:
         write_summary(
             f"## Catalog scrape returned only {len(current)} entries -- "
