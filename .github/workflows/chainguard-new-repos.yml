@@ -5,55 +5,35 @@ on:
     - cron: "0 13 * * *"        # daily ~13:00 UTC
   workflow_dispatch:
     inputs:
-      mode:
-        description: "Comparison baseline (since_date only works for skills)"
-        type: choice
-        default: since_last_run
-        options:
-          - since_last_run
-          - since_date
-      since_date:
-        description: "RFC3339 baseline for since_date mode. Blank = reuse stored date."
-        type: string
-        default: ""
       bootstrap:
-        description: "Seed BOTH baselines from the current catalog WITHOUT opening issues (run once)."
+        description: "Seed the baseline from the current catalog WITHOUT opening an issue (run once)."
         type: boolean
         default: false
+      category:
+        description: "Optional: scope to a directory category (application, base, ai, fips, ...). Blank = full catalog."
+        type: string
+        default: ""
 
 permissions:
-  id-token: write       # OIDC -> Chainguard assumable identity (skills leg)
-  contents: write       # commit the state files
-  issues: write         # open triage issues
+  contents: write       # commit the state file
+  issues: write         # open the triage issue
+
+concurrency:
+  group: chainguard-catalog-watch
+  cancel-in-progress: false
 
 jobs:
   watch:
     runs-on: ubuntu-latest
-    strategy:
-      max-parallel: 1            # serialize so the two state commits never race
-      matrix:
-        catalog: [catalog, skills]
-    concurrency:
-      group: chainguard-catalog-watch-${{ matrix.catalog }}
-      cancel-in-progress: false
     env:
-      CATALOG: ${{ matrix.catalog }}
-      STATE: .state/${{ matrix.catalog }}.json
-      MODE: ${{ inputs.mode || 'since_last_run' }}
-      SINCE_DATE: ${{ inputs.since_date || '' }}
+      STATE: .state/catalog.json
+      ISSUE_BODY: catalog_body.md
       BOOTSTRAP: ${{ inputs.bootstrap }}
-      ISSUE_BODY: ${{ matrix.catalog }}_body.md
+      DIR_CATEGORY: ${{ inputs.category || '' }}
     steps:
       - uses: actions/checkout@v4
 
-      # The skills leg needs chainctl auth; the catalog leg only scrapes the
-      # public directory over HTTP, but setting up the identity for both is
-      # harmless and keeps the matrix uniform.
-      - uses: chainguard-dev/setup-chainctl@main
-        with:
-          identity: ${{ secrets.CHAINGUARD_IDENTITY_ID }}
-
-      - name: Detect new ${{ matrix.catalog }}
+      - name: Detect new catalog images
         id: detect
         run: python3 .github/scripts/detect_new_repos.py
 
@@ -62,14 +42,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh label create "chainguard-$CATALOG" \
+          gh label create chainguard-catalog \
             --color 0e8a16 \
-            --description "New public Chainguard $CATALOG to evaluate" \
+            --description "New public Chainguard catalog images to evaluate" \
             --force >/dev/null 2>&1 || true
           gh issue create \
             --title "${{ steps.detect.outputs.title }}" \
             --body-file "$ISSUE_BODY" \
-            --label "chainguard-$CATALOG"
+            --label chainguard-catalog
 
       - name: Persist state
         if: steps.detect.outputs.persist == 'true'
@@ -78,7 +58,7 @@ jobs:
           git config user.email github-actions@github.com
           git pull --rebase --autostash || true
           git add "$STATE"
-          git commit -m "$CATALOG snapshot ($MODE) $(date -u +%FT%TZ)" || exit 0
+          git commit -m "catalog snapshot $(date -u +%FT%TZ)" || exit 0
           for i in 1 2 3; do
             git pull --rebase --autostash && git push && break
             sleep 5
