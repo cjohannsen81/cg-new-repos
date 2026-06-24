@@ -16,6 +16,10 @@ on:
         description: "RFC3339 baseline for since_date mode (needs createTime in the listing). Blank = reuse stored date."
         type: string
         default: ""
+      bootstrap:
+        description: "Seed the baseline from the current catalog WITHOUT opening an issue (run once on a fresh repo)."
+        type: boolean
+        default: false
 
 permissions:
   id-token: write       # OIDC -> Chainguard assumable identity
@@ -33,12 +37,12 @@ jobs:
       STATE: .state/repos.json
       MODE: ${{ inputs.mode || 'since_last_run' }}
       SINCE_DATE: ${{ inputs.since_date || '' }}
+      BOOTSTRAP: ${{ inputs.bootstrap }}
       ISSUE_BODY: new_images_body.md
     steps:
       - uses: actions/checkout@v4
 
       # Any valid identity works -- we read the PUBLIC catalog, not your org tree.
-      # registry.pull is sufficient; no CHAINGUARD_ORG_ID needed.
       - uses: chainguard-dev/setup-chainctl@main
         with:
           identity: ${{ secrets.CHAINGUARD_IDENTITY_ID }}
@@ -48,11 +52,10 @@ jobs:
         run: python3 .github/scripts/detect_new_repos.py
 
       - name: Open triage issue
-        if: steps.detect.outputs.changed == 'true'
+        if: steps.detect.outputs.notify == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # idempotent label create (no-op if it already exists)
           gh label create chainguard-catalog \
             --color 0e8a16 \
             --description "New public Chainguard images to evaluate" \
@@ -61,10 +64,12 @@ jobs:
             --title "${{ steps.detect.outputs.title }}" \
             --body-file "$ISSUE_BODY" \
             --label chainguard-catalog
-          # optional: --assignee your-handle  /  --label needs-triage
 
+      # Commit only after a successful notify (or on bootstrap, where notify is
+      # skipped). If the issue step ever fails, state is NOT advanced, so the
+      # batch re-fires on the next run rather than being silently lost.
       - name: Persist state
-        if: steps.detect.outputs.changed == 'true'
+        if: steps.detect.outputs.persist == 'true'
         run: |
           git config user.name  github-actions
           git config user.email github-actions@github.com
