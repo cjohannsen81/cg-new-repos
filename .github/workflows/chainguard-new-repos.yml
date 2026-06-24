@@ -1,0 +1,64 @@
+name: chainguard-new-repos
+
+on:
+  schedule:
+    - cron: "0 * * * *"          # hourly; steady-state runs use since_last_run
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Comparison baseline"
+        type: choice
+        default: since_last_run
+        options:
+          - since_last_run
+          - since_date
+      since_date:
+        description: "RFC3339 baseline for since_date mode (e.g. 2026-01-01T00:00:00Z). Blank = reuse stored date."
+        type: string
+        default: ""
+
+permissions:
+  id-token: write       # OIDC -> Chainguard assumable identity
+  contents: write       # to commit the state file back
+
+concurrency:
+  group: chainguard-new-repos     # serialize runs so state commits never race
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      API: https://console-api.enforce.dev
+      ORG_ID: ${{ secrets.CHAINGUARD_ORG_ID }}
+      STATE: .state/repos.json
+      MODE: ${{ inputs.mode || 'since_last_run' }}
+      SINCE_DATE: ${{ inputs.since_date || '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: chainguard-dev/setup-chainctl@main
+        with:
+          identity: ${{ secrets.CHAINGUARD_IDENTITY_ID }}
+
+      - name: Detect new repos
+        id: detect
+        run: python3 .github/scripts/detect_new_repos.py
+
+      # Optional: open an issue when something new shows up
+      # - name: Open issue
+      #   if: steps.detect.outputs.changed == 'true'
+      #   run: gh issue create --title "New images: ${{ steps.detect.outputs.names }}" --body "..."
+      #   env: { GH_TOKEN: ${{ github.token }} }
+
+      - name: Persist state
+        if: steps.detect.outputs.changed == 'true'
+        run: |
+          git config user.name  github-actions
+          git config user.email github-actions@github.com
+          git add "$STATE"
+          git commit -m "chainguard repo snapshot ($MODE) $(date -u +%FT%TZ)" || exit 0
+          for i in 1 2 3; do
+            git pull --rebase --autostash && git push && break
+            sleep 5
+          done
