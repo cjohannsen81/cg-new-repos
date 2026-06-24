@@ -4,27 +4,27 @@
 Watches the public Chainguard registry (cgr.dev/chainguard/*) and reports image
 repos that have appeared since a baseline, so you can decide whether to mirror
 them into your own org. Reads the catalog with `chainctl images repos list
---public` -- no org / descendants_of plumbing, since the public catalog is not
-part of your IAM tree.
+--public` -- no org / descendants_of plumbing.
 
-Two modes, both backed by a single committed state file (.state/repos.json):
-
-  since_last_run : repos never observed in any prior run (the catalog diff;
-                   this is the primary "what's new to adopt" signal)
+Modes (the comparison baseline), both backed by a single committed state file:
+  since_last_run : repos never observed in any prior run (the catalog diff)
   since_date     : repos whose createTime is after a persisted baseline date
-                   (only meaningful if the public listing returns createTime --
-                   verify with `chainctl images repos list --public -o json`)
+                   (only meaningful if the listing returns createTime)
 
-State file shape:
-{
-  "since_date": "2026-01-01T00:00:00Z",   # persisted baseline for since_date mode
-  "last_run":   "2026-06-24T13:00:00Z",   # informational
-  "seen":       { "<repo-name>": "<createTime-or-empty>", ... }   # observation log
-}
+BOOTSTRAP=true seeds `seen` from the current catalog WITHOUT opening an issue.
+Run it once on a fresh repo so the first real run reports deltas, not the whole
+catalog.
 
-Note: both modes share the single `seen` log, and every run with findings
-absorbs the full current catalog into it. Pick one mode as the steady-state
-cron; the other is for ad-hoc queries.
+Emitted GitHub outputs:
+  count   : number of new images
+  names   : comma-separated names
+  changed : "true" if new images were found
+  notify  : "true" -> open an issue (new images AND not bootstrap)
+  persist : "true" -> commit the state file (new images OR bootstrap)
+  title   : issue title (only when notify)
+
+State file (.state/repos.json):
+  { "since_date": "...", "last_run": "...", "seen": { name: createTime } }
 """
 import os
 import sys
@@ -33,12 +33,16 @@ import datetime
 import subprocess
 
 STATE_PATH = os.environ.get("STATE", ".state/repos.json")
-MODE = os.environ.get("MODE", "since_last_run")          # since_last_run | since_date
-DATE_INPUT = os.environ.get("SINCE_DATE", "").strip()    # optional override for since_date
+MODE = os.environ.get("MODE", "since_last_run")
+DATE_INPUT = os.environ.get("SINCE_DATE", "").strip()
 BODY_PATH = os.environ.get("ISSUE_BODY", "new_images_body.md")
+BOOTSTRAP = os.environ.get("BOOTSTRAP", "").strip().lower() in ("1", "true", "yes")
 
 REGISTRY = "cgr.dev/chainguard"
-DIRECTORY = "https://images.chainguard.dev/directory/image"   # verify the page suffix once
+DIRECTORY = "https://images.chainguard.dev/directory/image"  # verify the page suffix once
+
+MAX_ISSUE_ROWS = 100        # cap rows in the issue (GitHub body limit is 65536 chars)
+MAX_ISSUE_CHARS = 60000     # hard ceiling, well under GitHub's limit
 
 
 def parse_ts(s: str) -> datetime.datetime:
@@ -48,13 +52,7 @@ def parse_ts(s: str) -> datetime.datetime:
 
 
 def list_repos():
-    """Return (repos, meta) for the public Chainguard catalog.
-
-    repos: {name: createTime}
-    meta:  {name: {"tier": str, "bundles": list}}
-    Field names follow the -o json shape; adjust the .get() keys if a manual
-    run shows different names.
-    """
+    """Return (repos, meta): {name: createTime}, {name: {tier, bundles}}."""
     out = subprocess.check_output(
         ["chainctl", "images", "repos", "list", "--public", "-o", "json"]
     )
@@ -92,27 +90,47 @@ def write_summary(text: str):
             f.write(text + "\n")
 
 
-def render(new: dict, meta: dict, baseline: str) -> str:
-    lines = ["## New images in the public Chainguard catalog", ""]
+def _row(n: str, meta: dict) -> str:
+    tier = meta.get(n, {}).get("tier") or "-"
+    return f"| `{n}` | {tier} | `{REGISTRY}/{n}:latest` | [page]({DIRECTORY}/{n}/overview) |"
+
+
+def render(new: dict, meta: dict, baseline: str, limit: int = None) -> str:
+    """Full report (limit=None) for the step summary, or capped for an issue."""
     if not new:
-        lines.append(f"_No new images {baseline}._")
-        return "\n".join(lines)
-    lines.append(f"Detected {len(new)} new image(s) {baseline}.")
-    lines.append("")
-    lines.append("| Image | Tier | Pull reference | Directory |")
-    lines.append("|---|---|---|---|")
-    for n in sorted(new):
-        tier = meta.get(n, {}).get("tier") or "-"
-        lines.append(
-            f"| `{n}` | {tier} | `{REGISTRY}/{n}:latest` | [page]({DIRECTORY}/{n}/overview) |"
-        )
-    lines.append("")
-    lines.append(
-        "Decide whether to mirror any of these into the org. The "
+        return f"## New images in the public Chainguard catalog\n\n_No new images {baseline}._"
+    names = sorted(new)
+    head = [
+        "## New images in the public Chainguard catalog", "",
+        f"Detected {len(names)} new image(s) {baseline}.", "",
+        "| Image | Tier | Pull reference | Directory |", "|---|---|---|---|",
+    ]
+    footer = (
+        "\n\nDecide whether to mirror any of these into the org. The "
         "`image-copy-gcp` / `image-copy-ecr` examples in "
         "`chainguard-demo/platform-examples` handle the adoption step."
     )
-    return "\n".join(lines)
+    shown = names if limit is None else names[:limit]
+    while True:
+        rows = [_row(n, meta) for n in shown]
+        more = len(names) - len(shown)
+        extra = (
+            f"\n\n...and {more} more -- see the workflow run summary for the full list."
+            if more > 0 else ""
+        )
+        body = "\n".join(head + rows) + extra + footer
+        if limit is None or len(body) <= MAX_ISSUE_CHARS or len(shown) <= 1:
+            return body
+        shown = shown[: max(1, len(shown) // 2)]   # shrink until under the ceiling
+
+
+def persist(state: dict, seen: dict, current: dict, now: str):
+    seen.update(current)
+    state["seen"] = seen
+    state["last_run"] = now
+    os.makedirs(os.path.dirname(STATE_PATH) or ".", exist_ok=True)
+    with open(STATE_PATH, "w") as f:
+        json.dump(state, f, indent=2, sort_keys=True)
 
 
 def main():
@@ -120,13 +138,25 @@ def main():
     state = load_state()
     seen = state.get("seen", {})
 
-    if DATE_INPUT:                       # a one-off override persists going forward
+    if DATE_INPUT:
         state["since_date"] = DATE_INPUT
     since_date = state["since_date"]
 
     current, meta = list_repos()
-    unseen = {n: ct for n, ct in current.items() if n not in seen}
 
+    if BOOTSTRAP:
+        write_summary(
+            f"## Bootstrap\n\nRecorded a baseline of {len(current)} image(s). "
+            "No issue opened. Future runs will report only new additions."
+        )
+        emit("count", str(len(current)))
+        emit("changed", "false")
+        emit("notify", "false")
+        emit("persist", "true")
+        persist(state, seen, current, now)
+        return 0
+
+    unseen = {n: ct for n, ct in current.items() if n not in seen}
     if MODE == "since_date":
         cutoff = parse_ts(since_date)
         new = {n: ct for n, ct in unseen.items() if parse_ts(ct) > cutoff}
@@ -138,28 +168,23 @@ def main():
             if state.get("last_run") else "since last run (first run)"
         )
 
-    report = render(new, meta, baseline)
-    write_summary(report)
+    write_summary(render(new, meta, baseline))          # full table -> summary
 
     emit("count", str(len(new)))
     emit("names", ",".join(sorted(new)))
     emit("changed", "true" if new else "false")
+    emit("notify", "true" if new else "false")
+    emit("persist", "true" if new else "false")
+
     if new:
         shown = sorted(new)
         head = ", ".join(shown[:5]) + ("..." if len(shown) > 5 else "")
         emit("title", f"New Chainguard catalog images: {head} ({len(new)})")
         with open(BODY_PATH, "w") as f:
-            f.write(report + "\n")
+            f.write(render(new, meta, baseline, limit=MAX_ISSUE_ROWS) + "\n")
+        persist(state, seen, current, now)
 
-    # Persist only when there is something new (keeps git history quiet). The
-    # observation log absorbs the full current catalog so nothing re-fires.
-    if new:
-        seen.update(current)
-        state["seen"] = seen
-        state["last_run"] = now
-        os.makedirs(os.path.dirname(STATE_PATH) or ".", exist_ok=True)
-        with open(STATE_PATH, "w") as f:
-            json.dump(state, f, indent=2, sort_keys=True)
+    return 0
 
 
 if __name__ == "__main__":
