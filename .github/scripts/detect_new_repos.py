@@ -1,31 +1,44 @@
 #!/usr/bin/env python3
-"""Detect newly-added image repositories in a Chainguard registry.
+"""Detect newly-added image repositories in the PUBLIC Chainguard catalog.
+
+Watches the public Chainguard registry (cgr.dev/chainguard/*) and reports image
+repos that have appeared since a baseline, so you can decide whether to mirror
+them into your own org. Reads the catalog with `chainctl images repos list
+--public` -- no org / descendants_of plumbing, since the public catalog is not
+part of your IAM tree.
 
 Two modes, both backed by a single committed state file (.state/repos.json):
 
-  since_last_run : report repos never observed in any prior run
-  since_date     : report repos whose createTime is after a persisted baseline
-                   date, that we haven't already reported
+  since_last_run : repos never observed in any prior run (the catalog diff;
+                   this is the primary "what's new to adopt" signal)
+  since_date     : repos whose createTime is after a persisted baseline date
+                   (only meaningful if the public listing returns createTime --
+                   verify with `chainctl images repos list --public -o json`)
 
 State file shape:
 {
   "since_date": "2026-01-01T00:00:00Z",   # persisted baseline for since_date mode
-  "last_run":   "2026-06-24T15:00:00Z",   # informational
-  "seen":       { "<repo-name>": "<createTime>", ... }   # observation log
+  "last_run":   "2026-06-24T13:00:00Z",   # informational
+  "seen":       { "<repo-name>": "<createTime-or-empty>", ... }   # observation log
 }
+
+Note: both modes share the single `seen` log, and every run with findings
+absorbs the full current catalog into it. Pick one mode as the steady-state
+cron; the other is for ad-hoc queries.
 """
 import os
 import sys
 import json
 import datetime
 import subprocess
-import urllib.request
 
-API = os.environ["API"]
-ORG_ID = os.environ["ORG_ID"]
 STATE_PATH = os.environ.get("STATE", ".state/repos.json")
-MODE = os.environ.get("MODE", "since_last_run")        # since_last_run | since_date
-DATE_INPUT = os.environ.get("SINCE_DATE", "").strip()  # optional override for since_date
+MODE = os.environ.get("MODE", "since_last_run")          # since_last_run | since_date
+DATE_INPUT = os.environ.get("SINCE_DATE", "").strip()    # optional override for since_date
+BODY_PATH = os.environ.get("ISSUE_BODY", "new_images_body.md")
+
+REGISTRY = "cgr.dev/chainguard"
+DIRECTORY = "https://images.chainguard.dev/directory/image"   # verify the page suffix once
 
 
 def parse_ts(s: str) -> datetime.datetime:
@@ -34,27 +47,27 @@ def parse_ts(s: str) -> datetime.datetime:
     return datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
-def token() -> str:
-    return subprocess.check_output(["chainctl", "auth", "token"]).decode().strip()
+def list_repos():
+    """Return (repos, meta) for the public Chainguard catalog.
 
-
-def list_repos(tok: str) -> dict:
-    """Return {repo_name: createTime}, following pagination."""
-    repos, page = {}, ""
-    while True:
-        url = (
-            f"{API}/registry/v2beta1/repos"
-            f"?uidp.descendants_of={ORG_ID}&page_size=1000&page_token={page}"
-        )
-        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {tok}"})
-        with urllib.request.urlopen(req) as resp:
-            data = json.load(resp)
-        for r in data.get("repos", []):
-            repos[r["name"]] = r.get("createTime", "")
-        page = data.get("next_page_token") or ""
-        if not page:
-            break
-    return repos
+    repos: {name: createTime}
+    meta:  {name: {"tier": str, "bundles": list}}
+    Field names follow the -o json shape; adjust the .get() keys if a manual
+    run shows different names.
+    """
+    out = subprocess.check_output(
+        ["chainctl", "images", "repos", "list", "--public", "-o", "json"]
+    )
+    data = json.loads(out)
+    items = data.get("items", data) if isinstance(data, dict) else data
+    repos, meta = {}, {}
+    for r in items:
+        name = r.get("name") or r.get("repo")
+        if not name:
+            continue
+        repos[name] = r.get("createTime", "")
+        meta[name] = {"tier": r.get("tier", ""), "bundles": r.get("bundles", [])}
+    return repos, meta
 
 
 def load_state() -> dict:
@@ -71,18 +84,35 @@ def emit(key: str, value: str):
             f.write(f"{key}={value}\n")
 
 
-def report(new: dict, baseline: str):
-    lines = [f"### New images in registry ({baseline})", ""]
-    if new:
-        lines += [f"- `{n}`  created {new[n]}" for n in sorted(new)]
-    else:
-        lines.append("_No new images._")
-    out = "\n".join(lines)
-    print(out)
+def write_summary(text: str):
+    print(text)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a") as f:
-            f.write(out + "\n")
+            f.write(text + "\n")
+
+
+def render(new: dict, meta: dict, baseline: str) -> str:
+    lines = ["## New images in the public Chainguard catalog", ""]
+    if not new:
+        lines.append(f"_No new images {baseline}._")
+        return "\n".join(lines)
+    lines.append(f"Detected {len(new)} new image(s) {baseline}.")
+    lines.append("")
+    lines.append("| Image | Tier | Pull reference | Directory |")
+    lines.append("|---|---|---|---|")
+    for n in sorted(new):
+        tier = meta.get(n, {}).get("tier") or "-"
+        lines.append(
+            f"| `{n}` | {tier} | `{REGISTRY}/{n}:latest` | [page]({DIRECTORY}/{n}/overview) |"
+        )
+    lines.append("")
+    lines.append(
+        "Decide whether to mirror any of these into the org. The "
+        "`image-copy-gcp` / `image-copy-ecr` examples in "
+        "`chainguard-demo/platform-examples` handle the adoption step."
+    )
+    return "\n".join(lines)
 
 
 def main():
@@ -90,11 +120,11 @@ def main():
     state = load_state()
     seen = state.get("seen", {})
 
-    if DATE_INPUT:                       # one-off override persists going forward
+    if DATE_INPUT:                       # a one-off override persists going forward
         state["since_date"] = DATE_INPUT
     since_date = state["since_date"]
 
-    current = list_repos(token())
+    current, meta = list_repos()
     unseen = {n: ct for n, ct in current.items() if n not in seen}
 
     if MODE == "since_date":
@@ -108,13 +138,21 @@ def main():
             if state.get("last_run") else "since last run (first run)"
         )
 
-    report(new, baseline)
+    report = render(new, meta, baseline)
+    write_summary(report)
+
     emit("count", str(len(new)))
     emit("names", ",".join(sorted(new)))
     emit("changed", "true" if new else "false")
+    if new:
+        shown = sorted(new)
+        head = ", ".join(shown[:5]) + ("..." if len(shown) > 5 else "")
+        emit("title", f"New Chainguard catalog images: {head} ({len(new)})")
+        with open(BODY_PATH, "w") as f:
+            f.write(report + "\n")
 
-    # Persist: the observation log always absorbs the full current set, and we
-    # only write/commit when there is something new (avoids hourly churn).
+    # Persist only when there is something new (keeps git history quiet). The
+    # observation log absorbs the full current catalog so nothing re-fires.
     if new:
         seen.update(current)
         state["seen"] = seen
