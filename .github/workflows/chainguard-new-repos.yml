@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Comparison baseline"
+        description: "Comparison baseline (since_date only works for skills)"
         type: choice
         default: since_last_run
         options:
@@ -22,8 +22,8 @@ on:
         default: false
 
 permissions:
-  id-token: write       # OIDC -> Chainguard assumable identity
-  contents: write       # commit the catalog snapshots
+  id-token: write       # OIDC -> Chainguard assumable identity (skills leg)
+  contents: write       # commit the state files
   issues: write         # open triage issues
 
 jobs:
@@ -32,7 +32,7 @@ jobs:
     strategy:
       max-parallel: 1            # serialize so the two state commits never race
       matrix:
-        catalog: [images, skills]
+        catalog: [catalog, skills]
     concurrency:
       group: chainguard-catalog-watch-${{ matrix.catalog }}
       cancel-in-progress: false
@@ -46,8 +46,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # One identity reads the PUBLIC catalog; the skills/images split happens
-      # in the script, so this works even without the `chainctl skills` command.
+      # The skills leg needs chainctl auth; the catalog leg only scrapes the
+      # public directory over HTTP, but setting up the identity for both is
+      # harmless and keeps the matrix uniform.
       - uses: chainguard-dev/setup-chainctl@main
         with:
           identity: ${{ secrets.CHAINGUARD_IDENTITY_ID }}
