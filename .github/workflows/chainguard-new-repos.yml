@@ -1,8 +1,8 @@
-name: chainguard-new-public-images
+name: chainguard-catalog-watch
 
 on:
   schedule:
-    - cron: "0 13 * * *"        # daily ~13:00 UTC; catalog additions are infrequent
+    - cron: "0 13 * * *"        # daily ~13:00 UTC
   workflow_dispatch:
     inputs:
       mode:
@@ -13,41 +13,46 @@ on:
           - since_last_run
           - since_date
       since_date:
-        description: "RFC3339 baseline for since_date mode (needs createTime in the listing). Blank = reuse stored date."
+        description: "RFC3339 baseline for since_date mode. Blank = reuse stored date."
         type: string
         default: ""
       bootstrap:
-        description: "Seed the baseline from the current catalog WITHOUT opening an issue (run once on a fresh repo)."
+        description: "Seed BOTH baselines from the current catalog WITHOUT opening issues (run once)."
         type: boolean
         default: false
 
 permissions:
   id-token: write       # OIDC -> Chainguard assumable identity
-  contents: write       # commit the catalog snapshot
-  issues: write         # open a triage issue for new images
-
-concurrency:
-  group: chainguard-new-public-images     # serialize runs so state commits never race
-  cancel-in-progress: false
+  contents: write       # commit the catalog snapshots
+  issues: write         # open triage issues
 
 jobs:
-  check:
+  watch:
     runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1            # serialize so the two state commits never race
+      matrix:
+        catalog: [images, skills]
+    concurrency:
+      group: chainguard-catalog-watch-${{ matrix.catalog }}
+      cancel-in-progress: false
     env:
-      STATE: .state/repos.json
+      CATALOG: ${{ matrix.catalog }}
+      STATE: .state/${{ matrix.catalog }}.json
       MODE: ${{ inputs.mode || 'since_last_run' }}
       SINCE_DATE: ${{ inputs.since_date || '' }}
       BOOTSTRAP: ${{ inputs.bootstrap }}
-      ISSUE_BODY: new_images_body.md
+      ISSUE_BODY: ${{ matrix.catalog }}_body.md
     steps:
       - uses: actions/checkout@v4
 
-      # Any valid identity works -- we read the PUBLIC catalog, not your org tree.
+      # One identity reads the PUBLIC catalog; the skills/images split happens
+      # in the script, so this works even without the `chainctl skills` command.
       - uses: chainguard-dev/setup-chainctl@main
         with:
           identity: ${{ secrets.CHAINGUARD_IDENTITY_ID }}
 
-      - name: Detect new public images
+      - name: Detect new ${{ matrix.catalog }}
         id: detect
         run: python3 .github/scripts/detect_new_repos.py
 
@@ -56,25 +61,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh label create chainguard-catalog \
+          gh label create "chainguard-$CATALOG" \
             --color 0e8a16 \
-            --description "New public Chainguard images to evaluate" \
+            --description "New public Chainguard $CATALOG to evaluate" \
             --force >/dev/null 2>&1 || true
           gh issue create \
             --title "${{ steps.detect.outputs.title }}" \
             --body-file "$ISSUE_BODY" \
-            --label chainguard-catalog
+            --label "chainguard-$CATALOG"
 
-      # Commit only after a successful notify (or on bootstrap, where notify is
-      # skipped). If the issue step ever fails, state is NOT advanced, so the
-      # batch re-fires on the next run rather than being silently lost.
       - name: Persist state
         if: steps.detect.outputs.persist == 'true'
         run: |
           git config user.name  github-actions
           git config user.email github-actions@github.com
+          git pull --rebase --autostash || true
           git add "$STATE"
-          git commit -m "public catalog snapshot ($MODE) $(date -u +%FT%TZ)" || exit 0
+          git commit -m "$CATALOG snapshot ($MODE) $(date -u +%FT%TZ)" || exit 0
           for i in 1 2 3; do
             git pull --rebase --autostash && git push && break
             sleep 5
