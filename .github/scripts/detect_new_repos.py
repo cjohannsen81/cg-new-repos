@@ -1,29 +1,25 @@
 #!/usr/bin/env python3
-"""Detect newly-added image repositories in the PUBLIC Chainguard catalog.
+"""Detect newly-added repositories in the PUBLIC Chainguard catalog.
 
-Watches the public Chainguard registry (cgr.dev/chainguard/*) and reports image
-repos that have appeared since a baseline, so you can decide whether to mirror
-them into your own org. Reads the catalog with `chainctl images repos list
---public` -- no org / descendants_of plumbing.
+The public registry mixes two products under one namespace: container images
+and Agent Skills. `chainctl images repos list --public` returns both. We
+partition them on the `catalogTier` / `bundles` fields (images carry a tier and
+bundles; skills carry neither) and track each in its own state file, so a
+skills bulk-drop never buries a new image and vice versa.
 
-Modes (the comparison baseline), both backed by a single committed state file:
+Selected by the CATALOG env var (images | skills). Run once per catalog -- the
+companion workflow does this with a 2-way matrix.
+
+Modes (the comparison baseline), per-catalog state file:
   since_last_run : repos never observed in any prior run (the catalog diff)
   since_date     : repos whose createTime is after a persisted baseline date
-                   (only meaningful if the listing returns createTime)
 
-BOOTSTRAP=true seeds `seen` from the current catalog WITHOUT opening an issue.
-Run it once on a fresh repo so the first real run reports deltas, not the whole
-catalog.
+BOOTSTRAP=true seeds the state file from the current catalog WITHOUT opening an
+issue. Run once on a fresh repo so the first real run reports deltas.
 
-Emitted GitHub outputs:
-  count   : number of new images
-  names   : comma-separated names
-  changed : "true" if new images were found
-  notify  : "true" -> open an issue (new images AND not bootstrap)
-  persist : "true" -> commit the state file (new images OR bootstrap)
-  title   : issue title (only when notify)
+Emitted GitHub outputs: count, names, changed, notify, persist, title.
 
-State file (.state/repos.json):
+State file (.state/<catalog>.json):
   { "since_date": "...", "last_run": "...", "seen": { name: createTime } }
 """
 import os
@@ -32,14 +28,16 @@ import json
 import datetime
 import subprocess
 
-STATE_PATH = os.environ.get("STATE", ".state/repos.json")
+CATALOG = os.environ.get("CATALOG", "images").strip().lower()   # images | skills
+STATE_PATH = os.environ.get("STATE", f".state/{CATALOG}.json")
 MODE = os.environ.get("MODE", "since_last_run")
 DATE_INPUT = os.environ.get("SINCE_DATE", "").strip()
-BODY_PATH = os.environ.get("ISSUE_BODY", "new_images_body.md")
+BODY_PATH = os.environ.get("ISSUE_BODY", f"{CATALOG}_body.md")
 BOOTSTRAP = os.environ.get("BOOTSTRAP", "").strip().lower() in ("1", "true", "yes")
 
 REGISTRY = "cgr.dev/chainguard"
-DIRECTORY = "https://images.chainguard.dev/directory/image"  # verify the page suffix once
+DIRECTORY = "https://images.chainguard.dev/directory/image"   # <name>/versions
+NOUN = "container image" if CATALOG == "images" else "skill"
 
 MAX_ISSUE_ROWS = 100        # cap rows in the issue (GitHub body limit is 65536 chars)
 MAX_ISSUE_CHARS = 60000     # hard ceiling, well under GitHub's limit
@@ -51,20 +49,31 @@ def parse_ts(s: str) -> datetime.datetime:
     return datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
+def is_image(rec: dict) -> bool:
+    """Container images carry a catalogTier and/or bundles; skills carry neither."""
+    tier = (rec.get("catalogTier") or "").strip()
+    bundles = rec.get("bundles") or []
+    return bool(tier) or bool(bundles)
+
+
 def list_repos():
-    """Return (repos, meta): {name: createTime}, {name: {tier, bundles}}."""
+    """List the public catalog and keep only the records for CATALOG.
+
+    Returns (repos, meta): {name: createTime}, {name: {tier, bundles}}.
+    """
     out = subprocess.check_output(
         ["chainctl", "images", "repos", "list", "--public", "-o", "json"]
     )
     data = json.loads(out)
     items = data.get("items", data) if isinstance(data, dict) else data
+    want_image = CATALOG == "images"
     repos, meta = {}, {}
     for r in items:
         name = r.get("name") or r.get("repo")
-        if not name:
+        if not name or is_image(r) != want_image:
             continue
         repos[name] = r.get("createTime", "")
-        meta[name] = {"tier": r.get("tier", ""), "bundles": r.get("bundles", [])}
+        meta[name] = {"tier": r.get("catalogTier", ""), "bundles": r.get("bundles", [])}
     return repos, meta
 
 
@@ -90,29 +99,37 @@ def write_summary(text: str):
             f.write(text + "\n")
 
 
-def _row(n: str, meta: dict) -> str:
-    tier = meta.get(n, {}).get("tier") or "-"
-    return f"| `{n}` | {tier} | `{REGISTRY}/{n}:latest` | [page]({DIRECTORY}/{n}/overview) |"
-
-
 def render(new: dict, meta: dict, baseline: str, limit: int = None) -> str:
-    """Full report (limit=None) for the step summary, or capped for an issue."""
+    title = f"## New {NOUN}s in the public Chainguard catalog"
     if not new:
-        return f"## New images in the public Chainguard catalog\n\n_No new images {baseline}._"
+        return f"{title}\n\n_No new {NOUN}s {baseline}._"
     names = sorted(new)
-    head = [
-        "## New images in the public Chainguard catalog", "",
-        f"Detected {len(names)} new image(s) {baseline}.", "",
-        "| Image | Tier | Pull reference | Directory |", "|---|---|---|---|",
-    ]
-    footer = (
-        "\n\nDecide whether to mirror any of these into the org. The "
-        "`image-copy-gcp` / `image-copy-ecr` examples in "
-        "`chainguard-demo/platform-examples` handle the adoption step."
-    )
+    head = [title, "", f"Detected {len(names)} new {NOUN}(s) {baseline}.", ""]
+
+    if CATALOG == "images":
+        head += ["| Image | Tier | Pull reference | Directory |", "|---|---|---|---|"]
+        def row(n):
+            tier = meta.get(n, {}).get("tier") or "-"
+            return (f"| `{n}` | {tier} | `{REGISTRY}/{n}:latest` "
+                    f"| [page]({DIRECTORY}/{n}/versions) |")
+        footer = (
+            "\n\nDecide whether to mirror any of these into the org. The "
+            "`image-copy-gcp` / `image-copy-ecr` examples in "
+            "`chainguard-demo/platform-examples` handle the adoption step."
+        )
+    else:
+        head += ["| Skill | OCI reference |", "|---|---|"]
+        def row(n):
+            return f"| `{n}` | `{REGISTRY}/{n}` |"
+        footer = (
+            "\n\nNote: these are Agent Skills, not container images. "
+            "`chainctl skills pull` retrieves them (requires a chainctl build "
+            "with the `skills` command -- `chainctl update` if yours lacks it)."
+        )
+
     shown = names if limit is None else names[:limit]
     while True:
-        rows = [_row(n, meta) for n in shown]
+        rows = [row(n) for n in shown]
         more = len(names) - len(shown)
         extra = (
             f"\n\n...and {more} more -- see the workflow run summary for the full list."
@@ -121,7 +138,7 @@ def render(new: dict, meta: dict, baseline: str, limit: int = None) -> str:
         body = "\n".join(head + rows) + extra + footer
         if limit is None or len(body) <= MAX_ISSUE_CHARS or len(shown) <= 1:
             return body
-        shown = shown[: max(1, len(shown) // 2)]   # shrink until under the ceiling
+        shown = shown[: max(1, len(shown) // 2)]
 
 
 def persist(state: dict, seen: dict, current: dict, now: str):
@@ -146,8 +163,8 @@ def main():
 
     if BOOTSTRAP:
         write_summary(
-            f"## Bootstrap\n\nRecorded a baseline of {len(current)} image(s). "
-            "No issue opened. Future runs will report only new additions."
+            f"## Bootstrap ({CATALOG})\n\nRecorded a baseline of {len(current)} "
+            f"{NOUN}(s). No issue opened. Future runs will report only new additions."
         )
         emit("count", str(len(current)))
         emit("changed", "false")
@@ -179,7 +196,7 @@ def main():
     if new:
         shown = sorted(new)
         head = ", ".join(shown[:5]) + ("..." if len(shown) > 5 else "")
-        emit("title", f"New Chainguard catalog images: {head} ({len(new)})")
+        emit("title", f"New Chainguard {CATALOG}: {head} ({len(new)})")
         with open(BODY_PATH, "w") as f:
             f.write(render(new, meta, baseline, limit=MAX_ISSUE_ROWS) + "\n")
         persist(state, seen, current, now)
