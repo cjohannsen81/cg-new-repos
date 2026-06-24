@@ -1,46 +1,61 @@
 #!/usr/bin/env python3
-"""Detect newly-added repositories in the PUBLIC Chainguard catalog.
+"""Detect newly-added entries in Chainguard's public catalog.
 
-The public registry mixes two products under one namespace: container images
-and Agent Skills. `chainctl images repos list --public` returns both. We
-partition them on the `catalogTier` / `bundles` fields (images carry a tier and
-bundles; skills carry neither) and track each in its own state file, so a
-skills bulk-drop never buries a new image and vice versa.
+Two independent trackers, selected by the CATALOG env var, each with its own
+committed state file:
 
-Selected by the CATALOG env var (images | skills). Run once per catalog -- the
-companion workflow does this with a 2-way matrix.
+  catalog : the FULL container catalog (~2,656 images) scraped from the public
+            Containers Directory at images.chainguard.dev/directory. This is the
+            superset you actually want to watch -- free tier + production + FIPS
+            + charts. Names only (the directory exposes no per-row timestamp),
+            so this is a name-diff tracker.
 
-Modes (the comparison baseline), per-catalog state file:
-  since_last_run : repos never observed in any prior run (the catalog diff)
-  since_date     : repos whose createTime is after a persisted baseline date
+  skills  : Agent Skills, taken from `chainctl images repos list --public` by
+            keeping the repos that carry NO catalogTier/bundles (images carry
+            them; skills don't). These do carry createTime.
 
-BOOTSTRAP=true seeds the state file from the current catalog WITHOUT opening an
-issue. Run once on a fresh repo so the first real run reports deltas.
+The companion workflow runs both via a 2-way matrix.
+
+Modes:
+  since_last_run : repos never observed in any prior run (works for both)
+  since_date     : createTime after a persisted baseline (skills only -- the
+                   directory scrape has no timestamps)
+
+BOOTSTRAP=true seeds the state file without opening an issue. Run once.
 
 Emitted GitHub outputs: count, names, changed, notify, persist, title.
-
 State file (.state/<catalog>.json):
   { "since_date": "...", "last_run": "...", "seen": { name: createTime } }
 """
 import os
+import re
 import sys
 import json
+import time
 import datetime
 import subprocess
+import urllib.request
 
-CATALOG = os.environ.get("CATALOG", "images").strip().lower()   # images | skills
+CATALOG = os.environ.get("CATALOG", "catalog").strip().lower()   # catalog | skills
 STATE_PATH = os.environ.get("STATE", f".state/{CATALOG}.json")
 MODE = os.environ.get("MODE", "since_last_run")
 DATE_INPUT = os.environ.get("SINCE_DATE", "").strip()
 BODY_PATH = os.environ.get("ISSUE_BODY", f"{CATALOG}_body.md")
 BOOTSTRAP = os.environ.get("BOOTSTRAP", "").strip().lower() in ("1", "true", "yes")
+# Optional: scope the directory scrape to a category (application, base, ai,
+# fips, free, ...). Blank = the full directory.
+DIR_CATEGORY = os.environ.get("DIR_CATEGORY", "").strip()
 
 REGISTRY = "cgr.dev/chainguard"
-DIRECTORY = "https://images.chainguard.dev/directory/image"   # <name>/versions
-NOUN = "container image" if CATALOG == "images" else "skill"
+DIR_BASE = "https://images.chainguard.dev/directory"
+DIR_PAGE_URL = (f"{DIR_BASE}/category/{DIR_CATEGORY}" if DIR_CATEGORY else DIR_BASE)
+SLUG_RE = re.compile(r"/directory/image/([a-z0-9][a-z0-9._-]*)/(?:versions|overview)")
+UA = "chainguard-catalog-watch/1.0 (+github-actions)"
+NOUN = {"catalog": "catalog image", "skills": "skill"}.get(CATALOG, CATALOG)
 
-MAX_ISSUE_ROWS = 100        # cap rows in the issue (GitHub body limit is 65536 chars)
-MAX_ISSUE_CHARS = 60000     # hard ceiling, well under GitHub's limit
+MAX_DIR_PAGES = 500
+MAX_ISSUE_ROWS = 100
+MAX_ISSUE_CHARS = 60000
 
 
 def parse_ts(s: str) -> datetime.datetime:
@@ -50,31 +65,60 @@ def parse_ts(s: str) -> datetime.datetime:
 
 
 def is_image(rec: dict) -> bool:
-    """Container images carry a catalogTier and/or bundles; skills carry neither."""
     tier = (rec.get("catalogTier") or "").strip()
-    bundles = rec.get("bundles") or []
-    return bool(tier) or bool(bundles)
+    return bool(tier) or bool(rec.get("bundles") or [])
 
 
-def list_repos():
-    """List the public catalog and keep only the records for CATALOG.
+def list_directory() -> dict:
+    """Scrape the public Containers Directory. Returns {name: ""} (no timestamps).
 
-    Returns (repos, meta): {name: createTime}, {name: {tier, bundles}}.
+    Pages /directory/<N> until a page contributes no new slugs (which also
+    covers the site clamping out-of-range pages to the last one).
     """
+    names, page, misses = set(), 1, 0
+    while page <= MAX_DIR_PAGES:
+        url = f"{DIR_PAGE_URL}/{page}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                html = r.read().decode("utf-8", "replace")
+        except Exception:
+            break
+        before = len(names)
+        names |= set(SLUG_RE.findall(html))
+        if len(names) == before:
+            misses += 1
+            if misses >= 2:
+                break
+        else:
+            misses = 0
+        page += 1
+        time.sleep(0.3)                       # be polite to the site
+    return {n: "" for n in sorted(names)}
+
+
+def list_skills():
+    """`chainctl images repos list --public`, keep the non-image (skill) repos."""
     out = subprocess.check_output(
         ["chainctl", "images", "repos", "list", "--public", "-o", "json"]
     )
     data = json.loads(out)
     items = data.get("items", data) if isinstance(data, dict) else data
-    want_image = CATALOG == "images"
     repos, meta = {}, {}
     for r in items:
         name = r.get("name") or r.get("repo")
-        if not name or is_image(r) != want_image:
+        if not name or is_image(r):            # keep only skills here
             continue
         repos[name] = r.get("createTime", "")
         meta[name] = {"tier": r.get("catalogTier", ""), "bundles": r.get("bundles", [])}
     return repos, meta
+
+
+def list_repos():
+    if CATALOG == "skills":
+        return list_skills()
+    repos = list_directory()
+    return repos, {n: {} for n in repos}
 
 
 def load_state() -> dict:
@@ -100,41 +144,38 @@ def write_summary(text: str):
 
 
 def render(new: dict, meta: dict, baseline: str, limit: int = None) -> str:
-    title = f"## New {NOUN}s in the public Chainguard catalog"
+    scope = f" ({DIR_CATEGORY})" if (CATALOG == "catalog" and DIR_CATEGORY) else ""
+    title = f"## New {NOUN}s in the public Chainguard catalog{scope}"
     if not new:
         return f"{title}\n\n_No new {NOUN}s {baseline}._"
     names = sorted(new)
     head = [title, "", f"Detected {len(names)} new {NOUN}(s) {baseline}.", ""]
 
-    if CATALOG == "images":
-        head += ["| Image | Tier | Pull reference | Directory |", "|---|---|---|---|"]
+    if CATALOG == "catalog":
+        head += ["| Image | Reference | Directory |", "|---|---|---|"]
         def row(n):
-            tier = meta.get(n, {}).get("tier") or "-"
-            return (f"| `{n}` | {tier} | `{REGISTRY}/{n}:latest` "
-                    f"| [page]({DIRECTORY}/{n}/versions) |")
+            return (f"| `{n}` | `{REGISTRY}/{n}` "
+                    f"| [page]({DIR_BASE}/image/{n}/versions) |")
         footer = (
-            "\n\nDecide whether to mirror any of these into the org. The "
-            "`image-copy-gcp` / `image-copy-ecr` examples in "
-            "`chainguard-demo/platform-examples` handle the adoption step."
+            "\n\nThese are catalog entries (mostly Production images requiring "
+            "an entitlement to pull). To bring one into the org, provision it "
+            "(`chainctl starter add-images <name>` or the Console 'Add to org')."
         )
     else:
         head += ["| Skill | OCI reference |", "|---|---|"]
         def row(n):
             return f"| `{n}` | `{REGISTRY}/{n}` |"
         footer = (
-            "\n\nNote: these are Agent Skills, not container images. "
-            "`chainctl skills pull` retrieves them (requires a chainctl build "
-            "with the `skills` command -- `chainctl update` if yours lacks it)."
+            "\n\nNote: Agent Skills, not container images. `chainctl skills pull` "
+            "retrieves them (needs a chainctl build with the `skills` command)."
         )
 
     shown = names if limit is None else names[:limit]
     while True:
         rows = [row(n) for n in shown]
         more = len(names) - len(shown)
-        extra = (
-            f"\n\n...and {more} more -- see the workflow run summary for the full list."
-            if more > 0 else ""
-        )
+        extra = (f"\n\n...and {more} more -- see the workflow run summary."
+                 if more > 0 else "")
         body = "\n".join(head + rows) + extra + footer
         if limit is None or len(body) <= MAX_ISSUE_CHARS or len(shown) <= 1:
             return body
@@ -161,10 +202,23 @@ def main():
 
     current, meta = list_repos()
 
+    # Guard: a scrape that returns near-nothing is almost certainly a fetch
+    # failure or markup change, not a catalog that shrank to zero. Don't let it
+    # nuke the diff (everything would look "removed" / nothing "new").
+    if CATALOG == "catalog" and not BOOTSTRAP and len(current) < 100:
+        write_summary(
+            f"## Catalog scrape returned only {len(current)} entries -- "
+            "treating as a fetch failure and skipping this run."
+        )
+        emit("changed", "false")
+        emit("notify", "false")
+        emit("persist", "false")
+        return 0
+
     if BOOTSTRAP:
         write_summary(
             f"## Bootstrap ({CATALOG})\n\nRecorded a baseline of {len(current)} "
-            f"{NOUN}(s). No issue opened. Future runs will report only new additions."
+            f"{NOUN}(s). No issue opened. Future runs report only new additions."
         )
         emit("count", str(len(current)))
         emit("changed", "false")
@@ -185,7 +239,7 @@ def main():
             if state.get("last_run") else "since last run (first run)"
         )
 
-    write_summary(render(new, meta, baseline))          # full table -> summary
+    write_summary(render(new, meta, baseline))
 
     emit("count", str(len(new)))
     emit("names", ",".join(sorted(new)))
