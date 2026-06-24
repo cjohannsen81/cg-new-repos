@@ -1,8 +1,8 @@
-name: chainguard-new-repos
+name: chainguard-new-public-images
 
 on:
   schedule:
-    - cron: "0 * * * *"          # hourly; steady-state runs use since_last_run
+    - cron: "0 13 * * *"        # daily ~13:00 UTC; catalog additions are infrequent
   workflow_dispatch:
     inputs:
       mode:
@@ -13,43 +13,55 @@ on:
           - since_last_run
           - since_date
       since_date:
-        description: "RFC3339 baseline for since_date mode (e.g. 2026-01-01T00:00:00Z). Blank = reuse stored date."
+        description: "RFC3339 baseline for since_date mode (needs createTime in the listing). Blank = reuse stored date."
         type: string
         default: ""
 
 permissions:
   id-token: write       # OIDC -> Chainguard assumable identity
-  contents: write       # to commit the state file back
+  contents: write       # commit the catalog snapshot
+  issues: write         # open a triage issue for new images
 
 concurrency:
-  group: chainguard-new-repos     # serialize runs so state commits never race
+  group: chainguard-new-public-images     # serialize runs so state commits never race
   cancel-in-progress: false
 
 jobs:
   check:
     runs-on: ubuntu-latest
     env:
-      API: https://console-api.enforce.dev
-      ORG_ID: ${{ secrets.CHAINGUARD_ORG_ID }}
       STATE: .state/repos.json
       MODE: ${{ inputs.mode || 'since_last_run' }}
       SINCE_DATE: ${{ inputs.since_date || '' }}
+      ISSUE_BODY: new_images_body.md
     steps:
       - uses: actions/checkout@v4
 
+      # Any valid identity works -- we read the PUBLIC catalog, not your org tree.
+      # registry.pull is sufficient; no CHAINGUARD_ORG_ID needed.
       - uses: chainguard-dev/setup-chainctl@main
         with:
           identity: ${{ secrets.CHAINGUARD_IDENTITY_ID }}
 
-      - name: Detect new repos
+      - name: Detect new public images
         id: detect
         run: python3 .github/scripts/detect_new_repos.py
 
-      # Optional: open an issue when something new shows up
-      # - name: Open issue
-      #   if: steps.detect.outputs.changed == 'true'
-      #   run: gh issue create --title "New images: ${{ steps.detect.outputs.names }}" --body "..."
-      #   env: { GH_TOKEN: ${{ github.token }} }
+      - name: Open triage issue
+        if: steps.detect.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # idempotent label create (no-op if it already exists)
+          gh label create chainguard-catalog \
+            --color 0e8a16 \
+            --description "New public Chainguard images to evaluate" \
+            --force >/dev/null 2>&1 || true
+          gh issue create \
+            --title "${{ steps.detect.outputs.title }}" \
+            --body-file "$ISSUE_BODY" \
+            --label chainguard-catalog
+          # optional: --assignee your-handle  /  --label needs-triage
 
       - name: Persist state
         if: steps.detect.outputs.changed == 'true'
@@ -57,7 +69,7 @@ jobs:
           git config user.name  github-actions
           git config user.email github-actions@github.com
           git add "$STATE"
-          git commit -m "chainguard repo snapshot ($MODE) $(date -u +%FT%TZ)" || exit 0
+          git commit -m "public catalog snapshot ($MODE) $(date -u +%FT%TZ)" || exit 0
           for i in 1 2 3; do
             git pull --rebase --autostash && git push && break
             sleep 5
