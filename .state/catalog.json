@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-07-01T15:38:50.074294+00:00",
+  "last_run": "2026-07-02T15:11:38.076787+00:00",
   "seen": {
     "actions-runner": "",
     "adc": "",
@@ -30,6 +30,7 @@
     "amazon-k8s-cni-fips": "",
     "amazon-k8s-cni-init": "",
     "amazon-k8s-cni-init-fips": "",
+    "ansible": "",
     "ant": "",
     "ant-fips": "",
     "apache-activemq": "",
@@ -136,6 +137,8 @@
     "az-fips": "",
     "az-iamguarded": "",
     "az-iamguarded-fips": "",
+    "azcopy": "",
+    "azcopy-fips": "",
     "azterraform": "",
     "azterraform-fips": "",
     "azure-functions-dotnet": "",
@@ -1363,6 +1366,7 @@
     "kubeflow-pipelines-api-server": "",
     "kubeflow-pipelines-cache-deployer": "",
     "kubeflow-pipelines-cache-server": "",
+    "kubeflow-pipelines-driver": "",
     "kubeflow-pipelines-frontend": "",
     "kubeflow-pipelines-metadata-envoy": "",
     "kubeflow-pipelines-metadata-writer": "",
