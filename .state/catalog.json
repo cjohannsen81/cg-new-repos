@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-07-02T15:11:38.076787+00:00",
+  "last_run": "2026-07-03T15:06:57.960964+00:00",
   "seen": {
     "actions-runner": "",
     "adc": "",
@@ -1834,6 +1834,8 @@
     "opentelemetry-collector-contrib": "",
     "opentelemetry-collector-contrib-fips": "",
     "opentelemetry-collector-fips": "",
+    "opentelemetry-collector-k8s": "",
+    "opentelemetry-collector-k8s-fips": "",
     "opentelemetry-java-instrumentation": "",
     "opentelemetry-java-instrumentation-fips": "",
     "opentelemetry-nodejs-instrumentation": "",
