@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-07-07T15:42:06.840856+00:00",
+  "last_run": "2026-07-08T15:16:35.656223+00:00",
   "seen": {
     "actions-runner": "",
     "adc": "",
@@ -62,6 +62,7 @@
     "apko": "",
     "apm-server": "",
     "apm-server-fips": "",
+    "apollo-router": "",
     "apparmor": "",
     "arangodb": "",
     "arangodb-fips": "",
