@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-07-12T14:24:23.770667+00:00",
+  "last_run": "2026-07-14T14:45:30.420516+00:00",
   "seen": {
     "actions-runner": "",
     "adc": "",
@@ -498,6 +498,8 @@
     "crossplane-aws-bedrock-fips": "",
     "crossplane-aws-bedrockagent": "",
     "crossplane-aws-bedrockagent-fips": "",
+    "crossplane-aws-budgets": "",
+    "crossplane-aws-budgets-fips": "",
     "crossplane-aws-chime": "",
     "crossplane-aws-chime-fips": "",
     "crossplane-aws-cloudcontrol": "",
@@ -1552,6 +1554,8 @@
     "kubeflow-pvcviewer-controller-fips": "",
     "kubeflow-tensorboard-controller": "",
     "kubeflow-tensorboard-controller-fips": "",
+    "kubeflow-tensorboard-web-app": "",
+    "kubeflow-tensorboard-web-app-fips": "",
     "kubeflow-volumes-web-app": "",
     "kubeflow-volumes-web-app-fips": "",
     "kubelet-csr-approver": "",
