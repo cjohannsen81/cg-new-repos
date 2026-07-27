@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-07-25T14:27:49.596143+00:00",
+  "last_run": "2026-07-27T15:38:59.924207+00:00",
   "seen": {
     "actions-runner": "",
     "adc": "",
@@ -2394,6 +2394,7 @@
     "robotframework-fips": "",
     "rook-ceph": "",
     "rook-ceph-fips": "",
+    "rpi-server-bootc": "",
     "rqlite": "",
     "rqlite-fips": "",
     "rstudio": "",
