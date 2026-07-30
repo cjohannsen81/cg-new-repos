@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-07-29T15:30:32.986338+00:00",
+  "last_run": "2026-07-30T15:07:01.750708+00:00",
   "seen": {
     "actions-runner": "",
     "adc": "",
@@ -106,6 +106,8 @@
     "athenz-csi-driver-fips": "",
     "atlantis": "",
     "atlantis-fips": "",
+    "atlas": "",
+    "atlas-fips": "",
     "atmoz-sftp": "",
     "atmoz-sftp-fips": "",
     "auditbeat": "",
@@ -161,6 +163,8 @@
     "azure-functions-python": "",
     "azure-functions-python-fips": "",
     "azure-ipam": "",
+    "azure-metrics-exporter": "",
+    "azure-metrics-exporter-fips": "",
     "azure-service-operator": "",
     "azure-service-operator-fips": "",
     "azure-workload-identity-webhook": "",
@@ -815,6 +819,7 @@
     "crossplane-azure-solutions": "",
     "crossplane-azure-sql": "",
     "crossplane-azure-storage": "",
+    "crossplane-azure-streamanalytics": "",
     "crossplane-fips": "",
     "crossplane-function-auto-ready": "",
     "crossplane-function-auto-ready-fips": "",
