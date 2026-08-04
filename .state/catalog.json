@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-08-02T14:25:37.817650+00:00",
+  "last_run": "2026-08-04T15:21:49.650750+00:00",
   "seen": {
     "actions-runner": "",
     "adc": "",
@@ -2306,6 +2306,8 @@
     "prometheus-redis-exporter-iamguarded": "",
     "prometheus-redis-exporter-iamguarded-fips": "",
     "prometheus-snmp-exporter": "",
+    "prometheus-stackdriver-exporter": "",
+    "prometheus-stackdriver-exporter-fips": "",
     "prometheus-statsd-exporter": "",
     "prometheus-statsd-exporter-fips": "",
     "prometheus-statsd-exporter-iamguarded": "",
