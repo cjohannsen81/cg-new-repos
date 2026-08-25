@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-08-23T13:28:10.331049+00:00",
+  "last_run": "2026-08-25T13:44:16.877481+00:00",
   "seen": {
     "acm-controller": "",
     "acm-controller-fips": "",
@@ -984,6 +984,8 @@
     "duckdb-fips": "",
     "dynamic-localpv-provisioner": "",
     "dynamic-localpv-provisioner-fips": "",
+    "dynatrace-operator": "",
+    "dynatrace-operator-fips": "",
     "eck-operator": "",
     "eck-operator-fips": "",
     "eclipse-mosquitto": "",
