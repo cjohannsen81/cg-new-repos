@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-08-26T13:50:31.459874+00:00",
+  "last_run": "2026-08-27T22:44:02.129512+00:00",
   "seen": {
     "acm-controller": "",
     "acm-controller-fips": "",
@@ -1969,6 +1969,8 @@
     "mlflow-iamguarded": "",
     "mlrun": "",
     "mlrun-api": "",
+    "mlrun-api-fips": "",
+    "mlrun-fips": "",
     "mlrun-log-collector": "",
     "mlrun-log-collector-fips": "",
     "mlrun-ui": "",
@@ -2453,6 +2455,7 @@
     "redis-server-iamguarded-fips": "",
     "redisinsight": "",
     "redpanda": "",
+    "redpanda-console": "",
     "regclient-regbot": "",
     "regclient-regbot-fips": "",
     "regclient-regctl": "",
