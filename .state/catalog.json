@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-08-27T22:44:02.129512+00:00",
+  "last_run": "2026-08-28T22:51:08.294994+00:00",
   "seen": {
     "acm-controller": "",
     "acm-controller-fips": "",
@@ -67,6 +67,8 @@
     "apache-kvrocks": "",
     "apache-nifi": "",
     "apache-nifi-registry": "",
+    "apache-polaris": "",
+    "apache-polaris-fips": "",
     "apache-pulsar": "",
     "apache-pulsar-fips": "",
     "apache-tika": "",
@@ -1598,6 +1600,8 @@
     "kserve-router": "",
     "kserve-router-fips": "",
     "kserve-storage-initializer": "",
+    "kserve-xgbserver": "",
+    "kserve-xgbserver-fips": "",
     "ksops": "",
     "ksops-fips": "",
     "kube-arangodb": "",
@@ -2839,6 +2843,8 @@
     "victoria-metrics-fips": "",
     "victorialogs": "",
     "victorialogs-fips": "",
+    "victorialogs-vlagent": "",
+    "victorialogs-vlagent-fips": "",
     "victoriametrics-operator": "",
     "victoriametrics-operator-config-reloader": "",
     "victoriametrics-operator-config-reloader-fips": "",
