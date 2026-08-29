@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-08-28T22:51:08.294994+00:00",
+  "last_run": "2026-08-29T16:56:52.532424+00:00",
   "seen": {
     "acm-controller": "",
     "acm-controller-fips": "",
@@ -1595,6 +1595,8 @@
     "kserve-modelmesh-controller": "",
     "kserve-modelmesh-runtime-adapter": "",
     "kserve-models-web-app": "",
+    "kserve-pmmlserver": "",
+    "kserve-pmmlserver-fips": "",
     "kserve-qpext": "",
     "kserve-rest-proxy": "",
     "kserve-router": "",
@@ -2075,6 +2077,8 @@
     "node-problem-detector-fips": "",
     "nodetaint": "",
     "nodetaint-fips": "",
+    "nomad": "",
+    "nomad-fips": "",
     "nova": "",
     "nova-fips": "",
     "nrdot-collector-k8s": "",
