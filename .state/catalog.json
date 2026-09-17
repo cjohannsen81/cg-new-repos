@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-09-16T17:25:52.659942+00:00",
+  "last_run": "2026-09-17T17:25:39.152907+00:00",
   "seen": {
     "acm-controller": "",
     "acm-controller-fips": "",
@@ -2844,6 +2844,8 @@
     "tritonserver-vllm-backend-fips": "",
     "trivy": "",
     "trivy-fips": "",
+    "trivy-k8s-wrapper": "",
+    "trivy-k8s-wrapper-fips": "",
     "trivy-operator": "",
     "trivy-operator-fips": "",
     "trufflehog": "",
