@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-09-23T17:39:30.820036+00:00",
+  "last_run": "2026-09-24T17:42:49.853892+00:00",
   "seen": {
     "access-log-exporter": "",
     "access-log-exporter-fips": "",
@@ -486,6 +486,8 @@
     "configurable-http-proxy": "",
     "configurable-http-proxy-fips": "",
     "confluent-kafka": "",
+    "conftest": "",
+    "conftest-fips": "",
     "consul": "",
     "consul-fips": "",
     "consul-k8s": "",
@@ -1144,6 +1146,7 @@
     "fortio-fips": "",
     "fortiotel": "",
     "fortiotel-fips": "",
+    "foundry": "",
     "frankenphp": "",
     "frr": "",
     "frr-fips": "",
