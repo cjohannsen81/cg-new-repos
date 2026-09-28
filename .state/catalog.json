@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-09-27T17:24:52.920706+00:00",
+  "last_run": "2026-09-28T19:57:37.646417+00:00",
   "seen": {
     "access-log-exporter": "",
     "access-log-exporter-fips": "",
@@ -860,10 +860,15 @@
     "crossplane-aws-xray-fips": "",
     "crossplane-azure": "",
     "crossplane-azure-authorization": "",
+    "crossplane-azure-compute": "",
+    "crossplane-azure-containerservice": "",
+    "crossplane-azure-eventhub": "",
     "crossplane-azure-keyvault": "",
     "crossplane-azure-kusto": "",
     "crossplane-azure-managedidentity": "",
     "crossplane-azure-marketplaceordering": "",
+    "crossplane-azure-network": "",
+    "crossplane-azure-operationalinsights": "",
     "crossplane-azure-relay": "",
     "crossplane-azure-solutions": "",
     "crossplane-azure-sql": "",
