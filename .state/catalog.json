@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-10-05T21:00:39.611131+00:00",
+  "last_run": "2026-10-06T18:44:19.819713+00:00",
   "seen": {
     "access-log-exporter": "",
     "access-log-exporter-fips": "",
@@ -1422,6 +1422,8 @@
     "istio-pilot-fips": "",
     "istio-proxy": "",
     "istio-proxy-fips": "",
+    "istioctl": "",
+    "istioctl-fips": "",
     "it-tools": "",
     "jaeger": "",
     "jaeger-all-in-one": "",
@@ -2848,6 +2850,7 @@
     "terragrunt-fips": "",
     "tesseract": "",
     "tesseract-fips": "",
+    "test-tmp": "",
     "tetragon": "",
     "tetragon-fips": "",
     "tetragon-operator": "",
@@ -3068,6 +3071,8 @@
     "zap": "",
     "zarf-agent": "",
     "zarf-agent-fips": "",
+    "zeek": "",
+    "zeek-fips": "",
     "zig": "",
     "zipkin": "",
     "zipkin-slim": "",
