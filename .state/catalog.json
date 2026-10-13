@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-10-10T17:36:10.739495+00:00",
+  "last_run": "2026-10-13T19:42:59.222474+00:00",
   "seen": {
     "access-log-exporter": "",
     "access-log-exporter-fips": "",
@@ -893,6 +893,8 @@
     "crossplane-function-extra-resources-fips": "",
     "crossplane-function-go-templating": "",
     "crossplane-function-go-templating-fips": "",
+    "crossplane-function-kcl": "",
+    "crossplane-function-kcl-fips": "",
     "crossplane-function-patch-and-transform": "",
     "crossplane-function-patch-and-transform-fips": "",
     "crossplane-function-pythonic": "",
