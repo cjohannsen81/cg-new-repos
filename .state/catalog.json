@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-10-21T17:50:58.432668+00:00",
+  "last_run": "2026-10-23T17:39:37.649077+00:00",
   "seen": {
     "access-log-exporter": "",
     "access-log-exporter-fips": "",
@@ -1273,6 +1273,8 @@
     "gitlab-webservice-ce-fips": "",
     "gitlab-workhorse-ce": "",
     "gitlab-workhorse-ce-fips": "",
+    "gitleaks": "",
+    "gitleaks-fips": "",
     "gitness": "",
     "gke-deploy": "",
     "gke-deploy-fips": "",
@@ -1834,6 +1836,8 @@
     "kubernetes-autoscaler-addon-resizer-fips": "",
     "kubernetes-csi-driver-nfs": "",
     "kubernetes-csi-driver-nfs-fips": "",
+    "kubernetes-csi-driver-smb": "",
+    "kubernetes-csi-driver-smb-fips": "",
     "kubernetes-csi-external-attacher": "",
     "kubernetes-csi-external-attacher-fips": "",
     "kubernetes-csi-external-health-monitor": "",
