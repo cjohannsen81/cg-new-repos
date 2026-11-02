@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-10-31T17:28:59.944145+00:00",
+  "last_run": "2026-11-02T22:04:16.970036+00:00",
   "seen": {
     "access-log-exporter": "",
     "access-log-exporter-fips": "",
@@ -1785,6 +1785,7 @@
     "kube-rbac-proxy-fips": "",
     "kube-router": "",
     "kube-router-fips": "",
+    "kube-startup-cpu-boost": "",
     "kube-state-metrics": "",
     "kube-state-metrics-fips": "",
     "kube-state-metrics-iamguarded": "",
@@ -2220,6 +2221,8 @@
     "net-kourier": "",
     "netbox": "",
     "netbox-fips": "",
+    "netbox-operator": "",
+    "netbox-operator-fips": "",
     "netcat": "",
     "netshoot": "",
     "netshoot-fips": "",
@@ -2943,6 +2946,7 @@
     "strongswan": "",
     "stunnel": "",
     "stunnel-fips": "",
+    "supabase-postgres": "",
     "supabase-postgres-meta": "",
     "supabase-storage-api": "",
     "supabase-storage-api-fips": "",
