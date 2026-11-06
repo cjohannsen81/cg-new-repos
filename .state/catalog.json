@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-11-05T20:26:42.914788+00:00",
+  "last_run": "2026-11-06T19:48:58.194515+00:00",
   "seen": {
     "access-log-exporter": "",
     "access-log-exporter-fips": "",
@@ -113,6 +113,8 @@
     "argo-workflow-exec-iamguarded": "",
     "argo-workflowcontroller": "",
     "argo-workflowcontroller-fips": "",
+    "argo-workflows-crdinstaller": "",
+    "argo-workflows-crdinstaller-fips": "",
     "argocd": "",
     "argocd-agent": "",
     "argocd-extension-installer": "",
@@ -150,6 +152,8 @@
     "aws-cli-fips": "",
     "aws-cli-iamguarded": "",
     "aws-cli-iamguarded-fips": "",
+    "aws-cloudwatch-controller": "",
+    "aws-cloudwatch-controller-fips": "",
     "aws-ebs-csi-driver": "",
     "aws-ebs-csi-driver-fips": "",
     "aws-efs-csi-driver": "",
@@ -1082,6 +1086,8 @@
     "dotnet-sdk": "",
     "dotnet-sdk-fips": "",
     "dotstatsuite-supercore": "",
+    "dra-driver-nvidia-gpu": "",
+    "dra-driver-nvidia-gpu-fips": "",
     "dragonfly": "",
     "dragonfly-operator": "",
     "dragonfly-operator-fips": "",
