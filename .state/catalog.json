@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-11-06T19:48:58.194515+00:00",
+  "last_run": "2026-11-07T17:55:24.222922+00:00",
   "seen": {
     "access-log-exporter": "",
     "access-log-exporter-fips": "",
@@ -251,6 +251,7 @@
     "buildkit-fips": "",
     "buildkite-agent": "",
     "buildkite-agent-fips": "",
+    "buildkite-agent-metrics": "",
     "buildpack-deps": "",
     "bun": "",
     "busybox": "",
