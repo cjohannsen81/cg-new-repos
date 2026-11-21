@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-11-20T20:53:34.513805+00:00",
+  "last_run": "2026-11-21T19:54:24.810753+00:00",
   "seen": {
     "access-log-exporter": "",
     "access-log-exporter-fips": "",
@@ -1644,6 +1644,8 @@
     "kargo": "",
     "karma": "",
     "karma-fips": "",
+    "karmada-operator": "",
+    "karmada-scheduler-estimator": "",
     "karpenter": "",
     "karpenter-fips": "",
     "kas-network-proxy-agent": "",
